@@ -7,3 +7,6 @@ Last Update: 2024/8/25
 - **Enhancing Canada’s Innovation Landscape: A Data-Driven Consultancy Approach**\
   Course Project for MIE1624\
   Keywords: Python, JupyterNotebook, Text Analysis, ChatGPT API, PDF to Text
+- **Bike or Stroll: Smart Detection for Safer Pathways**\
+  Course Project for MIE1517\
+  Keywords: Python, JupyterNotebook, Deep Learning, Pytorch, Computer Vision, Neural Network
