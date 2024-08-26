@@ -10,3 +10,6 @@ Last Update: 2024/8/25
 - **Bike or Stroll: Smart Detection for Safer Pathways**\
   Course Project for MIE1517\
   Keywords: Python, JupyterNotebook, Deep Learning, Pytorch, Computer Vision, Neural Network
+- **Mushroom Toxicity Classification**\
+  Course Project for ECE1513\
+  Keywords: Python, JupyterNotebook, Machine Learning, Logistic Regression, RandomForest, SVM, Neural Network
