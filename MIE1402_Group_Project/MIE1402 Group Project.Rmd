@@ -1,0 +1,568 @@
+---
+title: "MIE1402 Group Project"
+output: html_document
+date: "2023-11-23"
+---
+
+## Dependencies: installing packages
+```{r, warning=FALSE, error=FALSE, message=FALSE}
+# install.packages(c('readr', 'dplyr', 'tidyr', 'ggplot2', 'corrr', 'reshape2'))
+
+library(readr)
+library(dplyr)     
+library(tidyr)      
+library(ggplot2)     
+library(corrr) 
+library(purrr)
+library(reshape2)
+
+```
+
+## Read the CSV file
+```{r}
+df <- read_csv("data_braintagger_2023.csv", show_col_types = FALSE)
+```
+
+```{r}
+# Drop the bad hit and rows there switchingrule
+df <- df[df$interactionType != "bad hit", ]
+df_cleaned <- df %>%
+  filter(is.na(ruleSwitch) | ruleSwitch == 0)
+
+# Drop rows where reactionTime < -1
+df_cleaned <- df_cleaned %>%
+  filter(reactionTime >= -1)
+
+# Replace reactionTime = -1 with moleDuration
+df_cleaned <- df_cleaned %>%
+  mutate(reactionTime = ifelse(reactionTime == -1, moleDuration, reactionTime))
+
+# View the cleaned data frame
+print(df_cleaned)
+```
+
+```{r}
+```
+
+```{r}
+# Define a function to calculate the Z score for a proportion
+z_score <- function(p) {
+  # Apply continuity correction
+  p <- ifelse(p <= 0, .0001, ifelse(p >= 1, .9999, p))
+  return(qnorm(p))
+}
+
+# Function to calculate D-prime with continuity correction
+calculate_d_prime <- function(CHR, FAR) {
+  # Apply continuity correction
+  CHR <- ifelse(CHR == 0, 0.0001, ifelse(CHR == 1, 0.9999, CHR))
+  FAR <- ifelse(FAR == 0, 0.0001, ifelse(FAR == 1, 0.9999, FAR))
+  
+  # Calculate D-prime
+  d_prime <- z_score(CHR) - z_score(FAR)
+  return(d_prime)
+}
+
+# Step 1: Group by participantNumber and name
+# Step 2: Summarize the count of each interactionType
+# Step 3, 4, 5: Calculate D-prime or accuracy as needed
+# Step 6: Calculate Z-scores for reaction time and score metric
+# Step 7: Combine the Z-scores to get a final score
+df_summary <- df_cleaned %>%
+  group_by(participantNumber, name) %>%
+  summarise(
+    correct_hit = sum(interactionType == "correct hit"),
+    miss = sum(interactionType == "miss"),
+    false_alarm = sum(interactionType == "false alarm"),
+    correct_rejection = sum(interactionType == "correct rejection"),
+    reaction_time = mean(reactionTime, na.rm = TRUE),
+    .groups = 'drop'
+  ) %>%
+  rowwise() %>%
+  mutate(
+    CHR = correct_hit / (correct_hit + miss),
+    FAR = false_alarm / (false_alarm + correct_rejection),
+    accuracy = correct_hit / (correct_hit + ifelse(grepl("Quick", name), miss, false_alarm)),
+    d_prime = ifelse(grepl("Again|Only", name), calculate_d_prime(CHR, FAR), NA_real_),
+    accuracy_z = ifelse(grepl("Quick|Bigger|Real|Switch", name), z_score(accuracy), NA_real_),
+    score = ifelse(!is.na(d_prime), d_prime, accuracy_z),
+  ) %>%
+  select(participantNumber, name, score, reaction_time)
+
+# View the summary data frame
+print(df_summary)
+```
+
+```{r}
+```
+
+
+
+
+
+```{r}
+# Pivot the table to get each game in columns
+df_score <- df_summary %>%
+  pivot_wider(
+    names_from = name,
+    values_from = score,
+    id_cols = participantNumber)
+
+# Drop the rows contain any NA and record the participant number
+rows_with_na <- which(complete.cases(df_score) == FALSE)
+removed_participant_numbers <- df_score[rows_with_na, "participantNumber"]
+removed_participant_numbers <- unlist(removed_participant_numbers)
+
+df_score <- na.omit(df_score)
+
+# Scale each column except 'participantNumber'
+df_score <- df_score %>%
+  mutate(across(-participantNumber, scale))
+
+df_score
+```
+
+```{r}
+# Pivot the table to get each game in columns
+df_reaction <- df_summary %>%
+  pivot_wider(
+    names_from = name,
+    values_from = reaction_time,
+    id_cols = participantNumber)
+
+# Drop the rows contain by the recored participant number
+df_reaction <- df_reaction[!df_reaction$participantNumber %in% removed_participant_numbers, ]
+
+# Scale each column except 'participantNumber'
+df_reaction <- df_reaction %>%
+  mutate(across(-participantNumber, scale))
+
+df_reaction
+```
+
+```{r}
+df_final <- df_score %>%
+  mutate(across(-participantNumber, ~ . - df_reaction[[cur_column()]]))
+
+print(df_final)
+```
+
+```{r}
+# Copy the original df_final to df_avg
+df_avg <- df_final
+
+# Calculate the averages for the specified groups and create new columns
+df_avg <- df_avg %>%
+  mutate(
+    TagMeAgain = rowMeans(select(., contains("TagMeAgain")), na.rm = TRUE),
+    PlantMeAgain = rowMeans(select(., contains("PlantMeAgain")), na.rm = TRUE),
+    ShuffleMeOnly = rowMeans(select(., contains("ShuffleMeOnly")), na.rm = TRUE),
+    ShuffleMeBigger = rowMeans(select(., contains("ShuffleMeBigger")), na.rm = TRUE)
+  )
+
+# Drop the original columns used for the averages
+df_avg <- select(df_avg, -contains("TagMeAgainEasy"),
+                 -contains("TagMeAgainMedium"),
+                 -contains("TagMeAgainHard"),
+                 -contains("PlantMeAgainEasy"),
+                 -contains("PlantMeAgainMedium"),
+                 -contains("PlantMeAgainHard"),
+                 -contains("ShuffleMeOnlyColour"),
+                 -contains("ShuffleMeOnlySuit"),
+                 -contains("ShuffleMeBiggerSuit"),
+                 -contains("ShuffleMeBiggerColo"),
+                 -contains("ShuffleMeBiggerAll"))
+
+# View the updated dataframe
+print(df_avg)
+```
+
+
+
+```{r}
+# Scale each column except 'participantNumber'
+df_avg <- df_avg %>%
+  mutate(across(-participantNumber, scale))
+df_avg
+```
+
+
+
+
+
+
+```{r}
+# Custom function for min-max scaling
+# min_max_scale <- function(x) {
+#  (x - min(x, na.rm = TRUE)) / (max(x, na.rm = TRUE) - min(x, na.rm = TRUE))
+# }
+
+# Apply min-max scaling to each column except 'participantNumber'
+# df_final <- df_final %>%
+#  mutate(across(-participantNumber, min_max_scale))
+
+# View the scaled dataframe
+#df_final
+```
+
+```{r}
+```
+
+
+```{r}
+# Exclude the participantNumber column for correlation matrix
+cor_matrix <- cor(df_avg[, -which(names(df_avg) == "participantNumber")], use = "complete.obs")
+
+# View the correlation matrix
+print(cor_matrix)
+```
+
+
+
+```{r}
+# Melt the correlation matrix into a long format
+melted_cor_matrix <- melt(cor_matrix)
+
+# Plot the heatmap
+ggplot(melted_cor_matrix, aes(Var1, Var2, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  labs(x = "", y = "", title = "Correlation Matrix Heatmap")
+
+```
+
+```{r}
+# Find indices of rows and columns that contain "TagMe"
+tagme_indices <- grepl("TagMe", rownames(cor_matrix))
+
+# Filter the correlation matrix to keep only those rows and columns
+tagme_corr <- cor_matrix[tagme_indices, tagme_indices]
+
+# Square each value in the correlation matrix to get the shared variance
+tagme_shared_variance <- tagme_corr^2
+
+print(tagme_shared_variance)
+```
+```{r}
+# Initialize a vector to store the average shared variance for each game
+tagme_mean_shared_variance <- numeric(nrow(tagme_shared_variance))
+
+# Loop over the rows of the shared variance matrix
+for (i in seq_len(nrow(tagme_shared_variance))) {
+  # Exclude the shared variance with itself by setting it to NA
+  tagme_shared_variance[i, i] <- NA
+  
+  # Calculate the mean of the squared correlations for each game, excluding NA values
+  tagme_mean_shared_variance[i] <- mean(tagme_shared_variance[i, ], na.rm = TRUE)
+}
+
+# Prepare the final dataframe
+tagme_mean_shared_variance <- data.frame(
+  game_name = gsub("TagMe", "", rownames(tagme_shared_variance)),
+  tagme_mean_shared_variance = tagme_mean_shared_variance)
+```
+
+```{r}
+tagme_mean_shared_variance
+```
+
+```{r}
+# Find indices of rows and columns that contain "PlantMe"
+plantme_indices <- grepl("PlantMe", rownames(cor_matrix))
+
+# Filter the correlation matrix to keep only those rows and columns
+plantme_corr <- cor_matrix[plantme_indices, plantme_indices]
+
+# Square each value in the correlation matrix to get the shared variance
+plantme_shared_variance <- plantme_corr^2
+
+print(plantme_shared_variance)
+```
+
+```{r}
+# Initialize a vector to store the average shared variance for each game
+plantme_mean_shared_variance <- numeric(nrow(plantme_shared_variance))
+
+# Loop over the rows of the shared variance matrix
+for (i in seq_len(nrow(plantme_shared_variance))) {
+  # Exclude the shared variance with itself by setting it to NA
+  plantme_shared_variance[i, i] <- NA
+  
+  # Calculate the mean of the squared correlations for each game, excluding NA values
+  plantme_mean_shared_variance[i] <- mean(plantme_shared_variance[i, ], na.rm = TRUE)
+}
+
+# Prepare the final dataframe
+plantme_mean_shared_variance <- data.frame(
+  game_name = gsub("PlantMe", "", rownames(plantme_shared_variance)),
+  plantme_mean_shared_variance = plantme_mean_shared_variance)
+
+plantme_mean_shared_variance
+```
+
+```{r}
+# Find indices of rows and columns that contain "ShuffleMe"
+shuffleme_indices <- grepl("ShuffleMe", rownames(cor_matrix))
+
+# Filter the correlation matrix to keep only those rows and columns
+shuffleme_corr <- cor_matrix[shuffleme_indices, shuffleme_indices]
+
+# Square each value in the correlation matrix to get the shared variance
+shuffleme_shared_variance <- shuffleme_corr^2
+
+print(shuffleme_shared_variance)
+```
+```{r}
+# Initialize a vector to store the average shared variance for each game
+shuffleme_mean_shared_variance <- numeric(nrow(shuffleme_shared_variance))
+
+# Loop over the rows of the shared variance matrix
+for (i in seq_len(nrow(shuffleme_shared_variance))) {
+  # Exclude the shared variance with itself by setting it to NA
+  shuffleme_shared_variance[i, i] <- NA
+  
+  # Calculate the mean of the squared correlations for each game, excluding NA values
+  shuffleme_mean_shared_variance[i] <- mean(shuffleme_shared_variance[i, ], na.rm = TRUE)
+}
+
+# Prepare the final dataframe
+shuffleme_mean_shared_variance <- data.frame(
+  game_name = gsub("ShuffleMe", "", rownames(shuffleme_shared_variance)),
+  shuffleme_mean_shared_variance = shuffleme_mean_shared_variance)
+
+shuffleme_mean_shared_variance
+```
+
+```{r}
+# Function to rename "Real" to "Bigger" and set row index as a column "game_name"
+prepare_df_for_merge <- function(df) {
+  rownames(df) <- gsub("Real", "Bigger", rownames(df))
+  df$game_name <- rownames(df)
+  return(df)
+}
+
+# Apply the function to each dataframe
+tagme_prepared <- prepare_df_for_merge(tagme_mean_shared_variance)
+plantme_prepared <- prepare_df_for_merge(plantme_mean_shared_variance)
+shuffleme_prepared <- prepare_df_for_merge(shuffleme_mean_shared_variance)
+
+# Merge the data frames based on "game_name"
+mean_shared_variance <- Reduce(function(x, y) merge(x, y, by = "game_name", all = TRUE),
+                    list(tagme_prepared, plantme_prepared, shuffleme_prepared))
+
+# Define the desired order
+desired_order <- c("Again", "Only", "Quick", "Bigger", "Switch")
+
+# Reorder the rows of the dataframe
+mean_shared_variance <- mean_shared_variance[match(desired_order, mean_shared_variance$game_name), ]
+mean_shared_variance
+```
+# Question 2.
+```{r}
+# Find indices of rows and columns that contain "Only"
+only_indices <- grepl("Only", rownames(cor_matrix))
+
+# Filter the correlation matrix to keep only those rows and columns
+only_corr <- cor_matrix[only_indices, only_indices]
+only_corr
+```
+
+```{r}
+# Find indices of rows and columns that contain "Quick"
+quick_indices <- grepl("Quick", rownames(cor_matrix))
+
+# Filter the correlation matrix to keep only those rows and columns
+quick_corr <- cor_matrix[quick_indices, quick_indices]
+quick_corr
+```
+
+```{r}
+# Find indices of rows and columns that contain "Bigger"
+bigger_indices <- grepl("Bigger|Real", rownames(cor_matrix))
+
+# Filter the correlation matrix to keep only those rows and columns
+bigger_corr <- cor_matrix[bigger_indices, bigger_indices]
+bigger_corr
+```
+
+```{r}
+# Find indices of rows and columns that contain "Switch"
+switch_indices <- grepl("Switch", rownames(cor_matrix))
+
+# Filter the correlation matrix to keep only those rows and columns
+switch_corr <- cor_matrix[switch_indices, switch_indices]
+switch_corr
+```
+
+```{r}
+# Extract the unique correlations
+tagme_plantme_corr <- only_corr["TagMeOnly", "PlantMeOnly"]
+tagme_shuffleme_corr <- only_corr["TagMeOnly", "ShuffleMeOnly"]
+plantme_shuffleme_corr <- only_corr["PlantMeOnly", "ShuffleMeOnly"]
+
+# Create a new data frame with these correlations
+only_corr_reduced <- data.frame(
+  "TagMe_vs_PlantMe" = tagme_plantme_corr,
+  "TagMe_vs_ShuffleMe" = tagme_shuffleme_corr,
+  "PlantMe_vs_ShuffleMe" = plantme_shuffleme_corr
+)
+
+# Add a row name to the data frame
+rownames(only_corr_reduced) <- "Only"
+
+
+# Extract the unique correlations
+tagme_plantme_corr <- quick_corr["TagMeQuick", "PlantMeQuick"]
+tagme_shuffleme_corr <- quick_corr["TagMeQuick", "ShuffleMeQuick"]
+plantme_shuffleme_corr <- quick_corr["PlantMeQuick", "ShuffleMeQuick"]
+
+# Create a new data frame with these correlations
+quick_corr_reduced <- data.frame(
+  "TagMe_vs_PlantMe" = tagme_plantme_corr,
+  "TagMe_vs_ShuffleMe" = tagme_shuffleme_corr,
+  "PlantMe_vs_ShuffleMe" = plantme_shuffleme_corr
+)
+
+# Add a row name to the data frame
+rownames(quick_corr_reduced) <- "Quick"
+
+
+# Extract the unique correlations
+tagme_plantme_corr <- bigger_corr["TagMeBigger", "PlantMeReal"]
+tagme_shuffleme_corr <- bigger_corr["TagMeBigger", "ShuffleMeBigger"]
+plantme_shuffleme_corr <- bigger_corr["PlantMeReal", "ShuffleMeBigger"]
+
+# Create a new data frame with these correlations
+bigger_corr_reduced <- data.frame(
+  "TagMe_vs_PlantMe" = tagme_plantme_corr,
+  "TagMe_vs_ShuffleMe" = tagme_shuffleme_corr,
+  "PlantMe_vs_ShuffleMe" = plantme_shuffleme_corr
+)
+
+# Add a row name to the data frame
+rownames(bigger_corr_reduced) <- "Bigger"
+
+
+# Extract the unique correlations
+tagme_plantme_corr <- switch_corr["TagMeSwitch", "PlantMeSwitch"]
+tagme_shuffleme_corr <- switch_corr["TagMeSwitch", "ShuffleMeSwitch"]
+plantme_shuffleme_corr <- switch_corr["PlantMeSwitch", "ShuffleMeSwitch"]
+
+# Create a new data frame with these correlations
+switch_corr_reduced <- data.frame(
+  "TagMe_vs_PlantMe" = tagme_plantme_corr,
+  "TagMe_vs_ShuffleMe" = tagme_shuffleme_corr,
+  "PlantMe_vs_ShuffleMe" = plantme_shuffleme_corr
+)
+
+# Add a row name to the data frame
+rownames(switch_corr_reduced) <- "Switch"
+
+skin_corr <- rbind(only_corr_reduced, quick_corr_reduced, bigger_corr_reduced, switch_corr_reduced)
+skin_corr
+```
+
+
+```{r}
+library(dplyr)
+library(ppcor)
+
+# Separating data by skin type
+tagme_scores <- df[grep("TagMe", names(df))]
+plantme_scores <- df[grep("PlantMe", names(df))]
+shuffleme_scores <- df[grep("ShuffleMe", names(df))]
+
+# Example: Calculating partial correlation for TagMe skin scores
+# Adjust the column names in the cor() function based on your actual game names
+# Assuming you want to calculate the correlation between two games, controlling for a third game
+pcor_result <- pcor.test(tagme_scores$Game1, tagme_scores$Game2, tagme_scores$Game3, method = "pearson")
+print(pcor_result)
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Step 1: Remove rows where 'name' contains 'Again'
+selected_df <- selected_df[!grepl("Again", selected_df$name), ]
+
+# Step 2: Remove rows where 'interactionType' is 'bad hit'
+selected_df <- selected_df[selected_df$interactionType != "bad hit", ]
+
+# Reset row names
+row.names(selected_df) <- NULL
+
+# View the cleaned data frame
+selected_df
+```
+
+```{r}
+# Function to calculate the Z score with handling of extreme values
+calculate_z_score <- function(p) {
+  # Adjust probabilities slightly for extreme values
+  p_adjusted <- ifelse(p == 1, 1 - 0.001, 
+                       ifelse(p == 0, 0.001, p))
+  # Calculate Z score
+  return(qnorm(p_adjusted))
+}
+
+
+# Step 1: Aggregate Data
+grouped_df <- selected_df %>%
+  group_by(participantNumber, name) %>%
+  summarise(
+    correct_hits = sum(interactionType == "correct hit"),
+    misses = sum(interactionType == "miss"),
+    false_alarms = sum(interactionType == "false alarm"),
+    correct_rejections = sum(interactionType == "correct rejection"),
+    total_reaction_time = sum(reactionTime),
+    .groups = 'drop'
+  )
+
+# Step 2 & 3: Calculate Hit Rate, False Alarm Rate, and d-prime
+grouped_df <- grouped_df %>%
+  mutate(
+    hit_rate = correct_hits / (correct_hits + misses),
+    false_alarm_rate = ifelse((false_alarms + correct_rejections) == 0, 0, 
+                              false_alarms / (false_alarms + correct_rejections)),
+    z_hit_rate = calculate_z_score(hit_rate),
+    z_false_alarm_rate = calculate_z_score(false_alarm_rate),
+    d_prime = z_hit_rate - z_false_alarm_rate
+  )
+
+# Step 4: Calculate Final Score
+grouped_df <- grouped_df %>%
+  mutate(
+    z_reaction_time = scale(total_reaction_time),
+    z_d_prime = scale(d_prime),
+    final_score = z_reaction_time + z_d_prime
+  )
+
+# View the final data frame
+head(grouped_df)
+```
+
+```{r}
+# Pivot the data to wide format with separate columns for final_score and z_d_prime for each game
+wide_df <- grouped_df %>%
+  pivot_wider(
+    id_cols = participantNumber,
+    names_from = name,
+    values_from = c(final_score, z_d_prime),
+    names_glue = "{name}_{.value}"
+  )
+
+# View the transformed data frame
+head(wide_df)
+```
+
