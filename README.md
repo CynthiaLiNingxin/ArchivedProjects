@@ -13,3 +13,5 @@ Last Update: 2024/8/26
 - **Mushroom Toxicity Classification**\
   Course Project for ECE1513\
   Keywords: Python, JupyterNotebook, Machine Learning, Logistic Regression, RandomForest, SVM, Neural Network
+- **MIE1402 Group Project**\
+  Keywords: R, Statistics Analysis, Clustering, Correlation
